@@ -9,8 +9,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +26,17 @@ import com.example.huiban.data.model.ProjectResponse
 import com.example.huiban.ui.theme.Orange500
 import com.example.huiban.ui.theme.Accent
 import com.example.huiban.ui.theme.Orange100
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
+enum class ProjectSortType(val displayName: String) {
+    NAME_ASC("По имени (А-Я)"),
+    NAME_DESC("По имени (Я-А)"),
+    DATE_CREATED_ASC("По дате создания (старые)"),
+    DATE_CREATED_DESC("По дате создания (новые)"),
+    DATE_UPDATED_ASC("По дате обновления (старые)"),
+    DATE_UPDATED_DESC("По дате обновления (новые)")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,6 +51,20 @@ fun ProjectsScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var newProjectName by remember { mutableStateOf("") }
     var newProjectDescription by remember { mutableStateOf("") }
+    var sortType by remember { mutableStateOf(ProjectSortType.NAME_ASC) }
+    var showSortMenu by remember { mutableStateOf(false) }
+    
+    // Sort projects based on selected sort type
+    val sortedProjects = remember(projects, sortType) {
+        when (sortType) {
+            ProjectSortType.NAME_ASC -> projects.sortedBy { it.name.lowercase() }
+            ProjectSortType.NAME_DESC -> projects.sortedByDescending { it.name.lowercase() }
+            ProjectSortType.DATE_CREATED_ASC -> projects.sortedBy { parseDateTime(it.createdAt) }
+            ProjectSortType.DATE_CREATED_DESC -> projects.sortedByDescending { parseDateTime(it.createdAt) }
+            ProjectSortType.DATE_UPDATED_ASC -> projects.sortedBy { parseDateTime(it.updatedAt) }
+            ProjectSortType.DATE_UPDATED_DESC -> projects.sortedByDescending { parseDateTime(it.updatedAt) }
+        }
+    }
     
     Scaffold(
         topBar = {
@@ -49,6 +76,42 @@ fun ProjectsScreen(
                     )
                 },
                 actions = {
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Сортировка")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            Text(
+                                text = "Сортировка",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Divider()
+                            ProjectSortType.values().forEach { sort ->
+                                DropdownMenuItem(
+                                    text = { Text(sort.displayName) },
+                                    onClick = {
+                                        sortType = sort
+                                        showSortMenu = false
+                                    },
+                                    leadingIcon = {
+                                        if (sortType == sort) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = Orange500
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
                     IconButton(onClick = onLogout) {
                         Icon(Icons.Default.ExitToApp, contentDescription = "Выйти")
                     }
@@ -119,7 +182,7 @@ fun ProjectsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(projects) { project ->
+                    items(sortedProjects) { project ->
                         ProjectCard(
                             project = project,
                             isOwner = project.ownerId == currentUserId,
@@ -197,6 +260,33 @@ fun ProjectsScreen(
                 }
             }
         )
+    }
+}
+
+private fun parseDateTime(dateTimeString: String): LocalDateTime {
+    return try {
+        // Try ISO format first (e.g., "2024-01-15T10:30:00")
+        LocalDateTime.parse(dateTimeString, DateTimeFormatter.ISO_DATE_TIME)
+    } catch (e: Exception) {
+        try {
+            // Try ISO offset format (e.g., "2024-01-15T10:30:00+03:00")
+            val offsetDateTime = java.time.OffsetDateTime.parse(dateTimeString, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            offsetDateTime.toLocalDateTime()
+        } catch (e2: Exception) {
+            try {
+                // Try ISO instant format (e.g., "2024-01-15T10:30:00Z")
+                val instant = java.time.Instant.parse(dateTimeString)
+                LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
+            } catch (e3: Exception) {
+                try {
+                    // Try format with space replaced by T
+                    LocalDateTime.parse(dateTimeString.replace(" ", "T"))
+                } catch (e4: Exception) {
+                    // If all parsing fails, return minimum date for sorting
+                    LocalDateTime.MIN
+                }
+            }
+        }
     }
 }
 
